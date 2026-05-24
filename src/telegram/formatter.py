@@ -26,9 +26,16 @@ def format_signal(signal: TradeSignal) -> str:
     """Format a trade signal as a premium Telegram message."""
     confidence_emoji = _confidence_emoji(signal.confidence_score)
     risk_emoji = _risk_emoji(signal.risk_level)
+    consensus_tag = ""
+    if signal.ai_models_used > 1:
+        if signal.ai_models_agree:
+            consensus_tag = f" \\[{signal.ai_models_used} AI AGREE\\]"
+        else:
+            consensus_tag = f" \\[{signal.ai_models_used} AI SPLIT\\]"
+    momentum_emoji = {"bullish": "📈", "bearish": "📉"}.get(signal.momentum_trend, "➡️")
 
     msg = (
-        f"🚨 HIGH\\-CONFIDENCE SIGNAL\n\n"
+        f"🚨 HIGH\\-CONFIDENCE SIGNAL{consensus_tag}\n\n"
         f"📊 *Market:*\n{_escape_md(signal.market_title)}\n\n"
         f"📈 *Current Probability:*\n{signal.yes_probability:.0%}\n\n"
         f"🧠 *AI Estimated Probability:*\n{signal.ai_probability:.0%}\n\n"
@@ -36,6 +43,7 @@ def format_signal(signal: TradeSignal) -> str:
         f"{confidence_emoji} *Confidence:*\n{signal.confidence_score}/100\n\n"
         f"💧 *Liquidity:*\n{_escape_md(signal.liquidity_rating)}\n\n"
         f"{risk_emoji} *Risk:*\n{signal.risk_level.replace('_', ' ').title()}\n\n"
+        f"{momentum_emoji} *Momentum:*\n{_escape_md(signal.momentum_trend.title())}\n\n"
         f"📰 *Reasoning:*\n{_escape_md(signal.ai_reasoning)}\n\n"
         f"📰 *News:*\n{_escape_md(signal.news_summary)}\n\n"
         f"📊 *Sentiment:*\n{_escape_md(signal.sentiment_summary)}\n\n"

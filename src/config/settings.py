@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(..., description="OpenAI API key")
     openai_model: str = Field("gpt-4o-mini", description="OpenAI model to use")
 
+    # --- Groq (free tier, ultra-fast Llama/Mixtral inference) ---
+    groq_api_key: str = Field("", description="Groq API key (free tier)")
+    groq_model: str = Field("llama-3.3-70b-versatile", description="Groq model to use")
+
+    # --- Google Gemini (free tier) ---
+    gemini_api_key: str = Field("", description="Google Gemini API key (free tier)")
+    gemini_model: str = Field("gemini-2.0-flash", description="Gemini model to use")
+
     # --- News ---
     news_api_key: str = Field("", description="NewsAPI.org key")
     gdelt_api_url: str = Field(
