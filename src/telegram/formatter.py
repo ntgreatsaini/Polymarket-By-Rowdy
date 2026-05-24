@@ -11,11 +11,13 @@ from src.whales.tracker import WhaleAlert
 
 def get_branding_footer() -> str:
     settings = get_settings()
+    tg_link = _escape_md(settings.telegram_channel_link)
+    x_link = _escape_md(settings.x_profile_link)
     return (
         "\n━━━━━━━━━━━━━━\n"
         "🔥 Support Us By Follow\n\n"
-        f"📢 TG:\n{settings.telegram_channel_link}\n\n"
-        f"🐦 X:\n{settings.x_profile_link}\n"
+        f"📢 TG:\n{tg_link}\n\n"
+        f"🐦 X:\n{x_link}\n"
         "━━━━━━━━━━━━━━"
     )
 
@@ -26,13 +28,13 @@ def format_signal(signal: TradeSignal) -> str:
     risk_emoji = _risk_emoji(signal.risk_level)
 
     msg = (
-        f"🚨 HIGH-CONFIDENCE SIGNAL\n\n"
+        f"🚨 HIGH\\-CONFIDENCE SIGNAL\n\n"
         f"📊 *Market:*\n{_escape_md(signal.market_title)}\n\n"
         f"📈 *Current Probability:*\n{signal.yes_probability:.0%}\n\n"
         f"🧠 *AI Estimated Probability:*\n{signal.ai_probability:.0%}\n\n"
-        f"🔥 *Expected Edge:*\n{signal.expected_edge:+.1f}%\n\n"
+        f"🔥 *Expected Edge:*\n{_escape_md(f'{signal.expected_edge:+.1f}')}%\n\n"
         f"{confidence_emoji} *Confidence:*\n{signal.confidence_score}/100\n\n"
-        f"💧 *Liquidity:*\n{signal.liquidity_rating}\n\n"
+        f"💧 *Liquidity:*\n{_escape_md(signal.liquidity_rating)}\n\n"
         f"{risk_emoji} *Risk:*\n{signal.risk_level.replace('_', ' ').title()}\n\n"
         f"📰 *Reasoning:*\n{_escape_md(signal.ai_reasoning)}\n\n"
         f"📰 *News:*\n{_escape_md(signal.news_summary)}\n\n"
@@ -51,11 +53,11 @@ def format_signal_compact(signal: TradeSignal) -> str:
     """Shorter format for quick alerts."""
     direction_emoji = "🟢" if signal.direction == "YES" else "🔴"
     return (
-        f"{direction_emoji} *{signal.direction}* | "
+        f"{direction_emoji} *{signal.direction}* \\| "
         f"{_escape_md(signal.market_title[:80])}\n"
         f"Market: {signal.yes_probability:.0%} → AI: {signal.ai_probability:.0%} "
-        f"(Edge: {signal.expected_edge:+.1f}%) "
-        f"| Conf: {signal.confidence_score}/100"
+        f"\\(Edge: {_escape_md(f'{signal.expected_edge:+.1f}')}%\\) "
+        f"\\| Conf: {signal.confidence_score}/100"
     )
 
 
@@ -66,7 +68,7 @@ def format_whale_alert(alert: WhaleAlert) -> str:
         f"🐋 WHALE ALERT\n\n"
         f"{side_emoji} *{alert.side}* — ${alert.amount:,.0f}\n\n"
         f"📊 *Market:*\n{_escape_md(alert.market_question or alert.market_id)}\n\n"
-        f"💰 *Price:* {alert.price:.2%}\n"
+        f"💰 *Price:* {_escape_md(f'{alert.price:.2%}')}\n"
         f"🧠 *Smart Money Score:* {alert.smart_money_score:.0%}\n"
         f"📋 *Type:* {alert.alert_type.replace('_', ' ').title()}"
     )
@@ -83,7 +85,7 @@ def format_market_info(market: dict[str, Any]) -> str:
         f"📉 *NO Price:* {float(market.get('no_price', 0)):.0%}\n"
         f"💰 *Volume:* ${float(market.get('volume', 0)):,.0f}\n"
         f"💧 *Liquidity:* ${float(market.get('liquidity', 0)):,.0f}\n"
-        f"📁 *Category:* {market.get('category', 'other').title()}\n"
+        f"📁 *Category:* {market.get('category', 'other').replace('_', ' ').title()}\n"
         f"🔗 *ID:* `{market.get('condition_id', 'N/A')}`"
     )
     msg += get_branding_footer()
@@ -100,7 +102,7 @@ def format_trending(markets: list[dict[str, Any]], title: str = "🔥 Trending M
         q = _escape_md(m.get("question", "N/A")[:60])
         price = float(m.get("yes_price", 0))
         vol = float(m.get("volume", 0))
-        lines.append(f"{i}\\. {q}\n   YES: {price:.0%} | Vol: ${vol:,.0f}")
+        lines.append(f"{i}\\. {q}\n   YES: {price:.0%} \\| Vol: ${vol:,.0f}")
 
     result = "\n".join(lines)
     result += get_branding_footer()
@@ -111,8 +113,8 @@ def format_performance(metrics: dict[str, Any]) -> str:
     """Format performance tracking metrics."""
     msg = (
         f"📊 *Performance Tracker*\n\n"
-        f"📈 *Win Rate:* {metrics.get('win_rate', 0):.1%}\n"
-        f"💰 *Total ROI:* {metrics.get('total_roi', 0):+.1%}\n"
+        f"📈 *Win Rate:* {_escape_md(f"{metrics.get('win_rate', 0):.1%}")}\n"
+        f"💰 *Total ROI:* {_escape_md(f"{metrics.get('total_roi', 0):+.1%}")}\n"
         f"📊 *Total Signals:* {metrics.get('total_signals', 0)}\n"
         f"✅ *Wins:* {metrics.get('wins', 0)}\n"
         f"❌ *Losses:* {metrics.get('losses', 0)}\n"

@@ -16,6 +16,7 @@ from telegram.ext import (
 from src.config.settings import get_settings
 from src.signals.generator import SignalGenerator, TradeSignal
 from src.telegram.formatter import (
+    _escape_md,
     format_help,
     format_market_info,
     format_performance,
@@ -254,7 +255,7 @@ class PolymarketBot:
             return
 
         query = " ".join(context.args)
-        await update.effective_message.reply_text(f"🔍 Searching for: {query}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.effective_message.reply_text(f"🔍 Searching for: {_escape_md(query)}\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
 
         results = await self._signal_gen._poly.search_markets(query, limit=3)
         if not results:
