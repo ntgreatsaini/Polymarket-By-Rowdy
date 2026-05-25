@@ -204,7 +204,9 @@ class OddPoolTracker:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-            return data.get("markets", data if isinstance(data, list) else [])
+            if isinstance(data, list):
+                return data
+            return data.get("markets", [])
         except Exception as exc:
             logger.warning("oddpool_search_error", error=str(exc))
             return []
