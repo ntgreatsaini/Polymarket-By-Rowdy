@@ -46,11 +46,14 @@ def _get_inline_buttons() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
 
-def _get_market_buttons(condition_id: str) -> InlineKeyboardMarkup:
+def _get_market_buttons(condition_id: str, slug: str = "", trade_url: str = "") -> InlineKeyboardMarkup:
     settings = get_settings()
-    market_url = f"https://polymarket.com/event/{condition_id}"
+    market_url = trade_url or (f"https://polymarket.com/event/{slug}" if slug else f"https://polymarket.com/event/{condition_id}")
     buttons = [
-        [InlineKeyboardButton("📊 View Market", url=market_url)],
+        [
+            InlineKeyboardButton("💰 Trade Now", url=market_url),
+            InlineKeyboardButton("📊 View Market", url=market_url),
+        ],
         [
             InlineKeyboardButton("📢 Join Telegram", url=settings.telegram_channel_link),
             InlineKeyboardButton("🐦 Follow on X", url=settings.x_profile_link),
@@ -268,10 +271,11 @@ class PolymarketBot:
         for raw in results[:3]:
             market = self._signal_gen._poly.parse_market(raw)
             text = format_market_info(market)
+            slug = market.get("slug", "")
             await update.effective_message.reply_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=_get_market_buttons(market["condition_id"]),
+                reply_markup=_get_market_buttons(market["condition_id"], slug=slug),
             )
 
     async def _cmd_portfolio(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -342,12 +346,13 @@ class PolymarketBot:
         """Send a formatted signal to the chat."""
         if not update.effective_message:
             return
+        buttons = _get_market_buttons(signal.condition_id, slug=signal.market_slug, trade_url=signal.trade_url)
         try:
             text = format_signal(signal)
             await update.effective_message.reply_text(
                 text,
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=_get_market_buttons(signal.condition_id),
+                reply_markup=buttons,
             )
         except Exception:
             try:
@@ -355,7 +360,7 @@ class PolymarketBot:
                 await update.effective_message.reply_text(
                     text,
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=_get_market_buttons(signal.condition_id),
+                    reply_markup=buttons,
                 )
             except Exception as exc:
                 logger.error("signal_send_error", error=str(exc))
@@ -364,13 +369,14 @@ class PolymarketBot:
         """Send a signal to a specific chat ID (for scheduled alerts)."""
         if not self._app:
             return
+        buttons = _get_market_buttons(signal.condition_id, slug=signal.market_slug, trade_url=signal.trade_url)
         try:
             text = format_signal(signal)
             await self._app.bot.send_message(
                 chat_id=chat_id,
                 text=text,
                 parse_mode=ParseMode.MARKDOWN_V2,
-                reply_markup=_get_market_buttons(signal.condition_id),
+                reply_markup=buttons,
             )
         except Exception:
             try:
@@ -379,7 +385,7 @@ class PolymarketBot:
                     chat_id=chat_id,
                     text=text,
                     parse_mode=ParseMode.MARKDOWN_V2,
-                    reply_markup=_get_market_buttons(signal.condition_id),
+                    reply_markup=buttons,
                 )
             except Exception as exc:
                 logger.error("chat_signal_send_error", chat_id=chat_id, error=str(exc))

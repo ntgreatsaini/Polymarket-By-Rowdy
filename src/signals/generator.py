@@ -43,6 +43,12 @@ class TradeSignal:
     suggested_exit: str
     time_horizon: str
     direction: str  # YES or NO
+    trade_url: str = ""
+    win_probability: float = 0.0  # probability of winning this trade (0-1)
+    expected_value: float = 0.0  # EV in percentage
+    kelly_bet_size: float = 0.0  # recommended fraction of bankroll
+    risk_score_breakdown: dict[str, Any] = field(default_factory=dict)
+    market_slug: str = ""
     ai_models_used: int = 1
     ai_models_agree: bool = True
     momentum_trend: str = "neutral"
@@ -261,6 +267,22 @@ class SignalGenerator:
         sentiment_summary = self._summarize_sentiment(sentiment_result)
         whale_summary = self._summarize_whales(whale_activity)
 
+        # --- 10. Win probability, EV, Kelly ---
+        win_prob = ai_prob
+        trade_price = yes_price if direction == "YES" else no_price
+        ev = self._calibration.calculate_expected_value(win_prob, trade_price, ai_confidence)
+        kelly = self._calibration.kelly_criterion(win_prob, trade_price, fraction=0.25)
+
+        # --- 11. Trade URL ---
+        slug = market.get("slug", "")
+        trade_url = f"https://polymarket.com/event/{slug}" if slug else ""
+
+        # --- 12. Risk score breakdown ---
+        risk_breakdown = self._build_risk_breakdown(
+            ai_confidence, ai_risk, liquidity, volume, whale_activity, momentum,
+            sentiment_result, models_agree, ev,
+        )
+
         return TradeSignal(
             market_title=question,
             condition_id=condition_id,
@@ -281,6 +303,12 @@ class SignalGenerator:
             suggested_exit=suggested_exit,
             time_horizon=time_horizon,
             direction=direction,
+            trade_url=trade_url,
+            win_probability=round(win_prob, 4),
+            expected_value=ev,
+            kelly_bet_size=kelly,
+            risk_score_breakdown=risk_breakdown,
+            market_slug=slug,
             ai_models_used=models_used,
             ai_models_agree=models_agree,
             momentum_trend=momentum.trend,
@@ -411,6 +439,42 @@ class SignalGenerator:
             f"bias: {activity.whale_bias}"
             + (f"\nTop: {top_str}" if top_str else "")
         )
+
+    @staticmethod
+    def _build_risk_breakdown(
+        confidence: int,
+        ai_risk: str,
+        liquidity: float,
+        volume: float,
+        whale_activity: WhaleActivity,
+        momentum: Any,
+        sentiment: SentimentResult,
+        models_agree: bool,
+        ev: float,
+    ) -> dict[str, Any]:
+        """Build a detailed risk breakdown for the signal."""
+        factors: dict[str, Any] = {}
+        factors["confidence_level"] = (
+            "Strong" if confidence >= 75 else "Moderate" if confidence >= 55 else "Weak"
+        )
+        factors["ai_risk_assessment"] = ai_risk.replace("_", " ").title()
+        factors["liquidity_risk"] = (
+            "Low" if liquidity >= 50_000 else "Medium" if liquidity >= 10_000 else "High"
+        )
+        factors["volume_risk"] = (
+            "Low" if volume >= 50_000 else "Medium" if volume >= 10_000 else "High"
+        )
+        factors["whale_alignment"] = whale_activity.whale_bias.title()
+        factors["sentiment_direction"] = sentiment.direction.title()
+        factors["ai_consensus"] = "Aligned" if models_agree else "Split"
+        factors["momentum"] = (
+            momentum.trend.title() if hasattr(momentum, "trend") else "N/A"
+        )
+        factors["volatility"] = (
+            momentum.volatility.title() if hasattr(momentum, "volatility") else "N/A"
+        )
+        factors["ev_positive"] = ev > 0
+        return factors
 
     def clear_recent_signals(self) -> None:
         """Clear the deduplication cache."""

@@ -33,25 +33,64 @@ def format_signal(signal: TradeSignal) -> str:
         else:
             consensus_tag = f" \\[{signal.ai_models_used} AI SPLIT\\]"
     momentum_emoji = {"bullish": "📈", "bearish": "📉"}.get(signal.momentum_trend, "➡️")
+    direction_emoji = "🟢" if signal.direction == "YES" else "🔴"
+    win_pct = signal.win_probability * 100
+    ev_emoji = "✅" if signal.expected_value > 0 else "⚠️"
 
     msg = (
         f"🚨 HIGH\\-CONFIDENCE SIGNAL{consensus_tag}\n\n"
         f"📊 *Market:*\n{_escape_md(signal.market_title)}\n\n"
-        f"📈 *Current Probability:*\n{signal.yes_probability:.0%}\n\n"
-        f"🧠 *AI Estimated Probability:*\n{signal.ai_probability:.0%}\n\n"
-        f"🔥 *Expected Edge:*\n{_escape_md(f'{signal.expected_edge:+.1f}')}%\n\n"
-        f"{confidence_emoji} *Confidence:*\n{signal.confidence_score}/100\n\n"
-        f"💧 *Liquidity:*\n{_escape_md(signal.liquidity_rating)}\n\n"
-        f"{risk_emoji} *Risk:*\n{signal.risk_level.replace('_', ' ').title()}\n\n"
-        f"{momentum_emoji} *Momentum:*\n{_escape_md(signal.momentum_trend.title())}\n\n"
+        f"{direction_emoji} *Direction:* {signal.direction}\n\n"
+    )
+
+    # Win probability & trade stats — the key section
+    msg += (
+        "━━━ 🏆 WIN ANALYSIS ━━━\n"
+        f"🎯 *Win Probability:* {_escape_md(f'{win_pct:.1f}')}%\n"
+        f"📈 *Current Market Price:* {signal.yes_probability:.0%} YES \\| {signal.no_probability:.0%} NO\n"
+        f"🧠 *AI Estimated Probability:* {signal.ai_probability:.0%}\n"
+        f"🔥 *Expected Edge:* {_escape_md(f'{signal.expected_edge:+.1f}')}%\n"
+        f"{ev_emoji} *Expected Value \\(EV\\):* {_escape_md(f'{signal.expected_value:+.1f}')}%\n"
+        f"💰 *Kelly Bet Size:* {_escape_md(f'{signal.kelly_bet_size:.1%}')} of bankroll\n"
+        f"{confidence_emoji} *Confidence:* {signal.confidence_score}/100\n\n"
+    )
+
+    # Risk analysis section
+    rb = signal.risk_score_breakdown
+    msg += (
+        "━━━ ⚠️ RISK ANALYSIS ━━━\n"
+        f"{risk_emoji} *Overall Risk:* {signal.risk_level.replace('_', ' ').title()}\n"
+        f"💧 *Liquidity:* {_escape_md(signal.liquidity_rating)}"
+        f" \\(Risk: {_escape_md(rb.get('liquidity_risk', 'N/A'))}\\)\n"
+        f"📊 *Volume Risk:* {_escape_md(rb.get('volume_risk', 'N/A'))}\n"
+        f"📈 *Volatility:* {_escape_md(signal.volatility_rating)}"
+        f" \\({_escape_md(rb.get('volatility', 'N/A'))}\\)\n"
+        f"{momentum_emoji} *Momentum:* {_escape_md(signal.momentum_trend.title())}\n"
+        f"🐋 *Whale Alignment:* {_escape_md(rb.get('whale_alignment', 'N/A'))}\n"
+        f"📰 *Sentiment:* {_escape_md(rb.get('sentiment_direction', 'N/A'))}\n"
+        f"🤖 *AI Consensus:* {_escape_md(rb.get('ai_consensus', 'N/A'))}\n\n"
+    )
+
+    # AI reasoning & data
+    msg += (
+        "━━━ 🧠 AI ANALYSIS ━━━\n"
         f"📰 *Reasoning:*\n{_escape_md(signal.ai_reasoning)}\n\n"
         f"📰 *News:*\n{_escape_md(signal.news_summary)}\n\n"
         f"📊 *Sentiment:*\n{_escape_md(signal.sentiment_summary)}\n\n"
         f"🐋 *Whale Activity:*\n{_escape_md(signal.whale_summary)}\n\n"
-        f"💡 *Suggested Entry:*\n{_escape_md(signal.suggested_entry)}\n\n"
-        f"🎯 *Suggested Exit:*\n{_escape_md(signal.suggested_exit)}\n\n"
-        f"⏳ *Time Horizon:*\n{_escape_md(signal.time_horizon)}"
     )
+
+    # Trade execution section
+    msg += (
+        "━━━ 💰 TRADE EXECUTION ━━━\n"
+        f"💡 *Suggested Entry:* {_escape_md(signal.suggested_entry)}\n"
+        f"🎯 *Suggested Exit:* {_escape_md(signal.suggested_exit)}\n"
+        f"⏳ *Time Horizon:* {_escape_md(signal.time_horizon)}\n"
+    )
+
+    # Trade link
+    if signal.trade_url:
+        msg += f"\n🔗 *Trade Now:*\n{_escape_md(signal.trade_url)}\n"
 
     msg += get_branding_footer()
     return msg
@@ -60,13 +99,20 @@ def format_signal(signal: TradeSignal) -> str:
 def format_signal_compact(signal: TradeSignal) -> str:
     """Shorter format for quick alerts."""
     direction_emoji = "🟢" if signal.direction == "YES" else "🔴"
-    return (
+    win_pct = signal.win_probability * 100
+    ev_emoji = "✅" if signal.expected_value > 0 else "⚠️"
+    msg = (
         f"{direction_emoji} *{signal.direction}* \\| "
         f"{_escape_md(signal.market_title[:80])}\n"
+        f"🎯 Win: {_escape_md(f'{win_pct:.0f}')}% \\| "
+        f"Edge: {_escape_md(f'{signal.expected_edge:+.1f}')}% \\| "
+        f"{ev_emoji} EV: {_escape_md(f'{signal.expected_value:+.1f}')}%\n"
         f"Market: {signal.yes_probability:.0%} → AI: {signal.ai_probability:.0%} "
-        f"\\(Edge: {_escape_md(f'{signal.expected_edge:+.1f}')}%\\) "
-        f"\\| Conf: {signal.confidence_score}/100"
+        f"\\| Conf: {signal.confidence_score}/100 \\| Risk: {signal.risk_level.replace('_', ' ').title()}"
     )
+    if signal.trade_url:
+        msg += f"\n🔗 {_escape_md(signal.trade_url)}"
+    return msg
 
 
 def format_whale_alert(alert: WhaleAlert) -> str:
@@ -86,16 +132,37 @@ def format_whale_alert(alert: WhaleAlert) -> str:
 
 def format_market_info(market: dict[str, Any]) -> str:
     """Format market information for /market command."""
+    yes_price = float(market.get('yes_price', 0))
+    no_price = float(market.get('no_price', 0))
+    volume = float(market.get('volume', 0))
+    liquidity = float(market.get('liquidity', 0))
+    slug = market.get('slug', '')
+    trade_url = f"https://polymarket.com/event/{slug}" if slug else ""
+
     msg = (
         f"📊 *Market Info*\n\n"
         f"❓ *Question:*\n{_escape_md(market.get('question', 'N/A'))}\n\n"
-        f"📈 *YES Price:* {float(market.get('yes_price', 0)):.0%}\n"
-        f"📉 *NO Price:* {float(market.get('no_price', 0)):.0%}\n"
-        f"💰 *Volume:* ${float(market.get('volume', 0)):,.0f}\n"
-        f"💧 *Liquidity:* ${float(market.get('liquidity', 0)):,.0f}\n"
+        f"📈 *YES Price:* {yes_price:.0%}\n"
+        f"📉 *NO Price:* {no_price:.0%}\n"
+        f"💰 *Volume:* ${volume:,.0f}\n"
+        f"💧 *Liquidity:* ${liquidity:,.0f}\n"
         f"📁 *Category:* {market.get('category', 'other').replace('_', ' ').title()}\n"
-        f"🔗 *ID:* `{market.get('condition_id', 'N/A')}`"
     )
+
+    # Quick stats
+    if yes_price > 0 and yes_price < 1:
+        liq_rating = "Very High" if liquidity >= 100_000 else "High" if liquidity >= 50_000 else "Medium" if liquidity >= 10_000 else "Low"
+        msg += (
+            f"\n📊 *Quick Stats:*\n"
+            f"  💧 Liquidity Rating: {liq_rating}\n"
+            f"  📊 YES implies {yes_price:.0%} chance\n"
+            f"  📊 NO implies {no_price:.0%} chance\n"
+        )
+
+    if trade_url:
+        msg += f"\n🔗 *Trade Now:*\n{_escape_md(trade_url)}\n"
+
+    msg += f"🔗 *ID:* `{market.get('condition_id', 'N/A')}`"
     msg += get_branding_footer()
     return msg
 
@@ -110,7 +177,12 @@ def format_trending(markets: list[dict[str, Any]], title: str = "🔥 Trending M
         q = _escape_md(m.get("question", "N/A")[:60])
         price = float(m.get("yes_price", 0))
         vol = float(m.get("volume", 0))
-        lines.append(f"{i}\\. {q}\n   YES: {price:.0%} \\| Vol: ${vol:,.0f}")
+        slug = m.get("slug", "")
+        trade_link = f"https://polymarket.com/event/{slug}" if slug else ""
+        line = f"{i}\\. {q}\n   YES: {price:.0%} \\| Vol: ${vol:,.0f}"
+        if trade_link:
+            line += f"\n   🔗 {_escape_md(trade_link)}"
+        lines.append(line)
 
     result = "\n".join(lines)
     result += get_branding_footer()
