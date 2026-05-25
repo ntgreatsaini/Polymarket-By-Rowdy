@@ -91,6 +91,8 @@ class PolymarketBot:
         self._app.add_handler(CommandHandler("performance", self._cmd_performance))
         self._app.add_handler(CommandHandler("subscribe", self._cmd_subscribe))
         self._app.add_handler(CommandHandler("unsubscribe", self._cmd_unsubscribe))
+        self._app.add_handler(CommandHandler("arbitrage", self._cmd_arbitrage))
+        self._app.add_handler(CommandHandler("smartmoney", self._cmd_smart_money))
 
         self._app.add_handler(CallbackQueryHandler(self._callback_handler))
 
@@ -199,11 +201,12 @@ class PolymarketBot:
             return
         if not self._rate_check(update):
             return
-        await update.effective_message.reply_text("🐋 Scanning for whale activity\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.effective_message.reply_text("🐋 Scanning whale activity \\(CLOB \\+ OddPool \\+ Merlin\\)\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
 
         whale_alerts = await self._signal_gen._whales.scan_for_whale_trades()
+        oddpool_stats = await self._signal_gen._oddpool.get_whale_feed(limit=10, platform="polymarket")
 
-        if not whale_alerts:
+        if not whale_alerts and oddpool_stats.total_trades_24h == 0:
             await update.effective_message.reply_text(
                 "No significant whale activity detected recently\\.",
                 parse_mode=ParseMode.MARKDOWN_V2,
@@ -219,6 +222,20 @@ class PolymarketBot:
                 )
             except Exception as exc:
                 logger.warning("whale_alert_send_error", error=str(exc))
+
+        # OddPool cross-venue whale data
+        if oddpool_stats.total_volume_24h > 0:
+            oddpool_text = self._signal_gen._oddpool.format_whale_summary(oddpool_stats)
+            if oddpool_text:
+                escaped = _escape_md(oddpool_text)
+                try:
+                    await update.effective_message.reply_text(
+                        f"📊 *Cross\\-Venue Whale Data \\(OddPool\\)*\n\n{escaped}",
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                        reply_markup=_get_inline_buttons(),
+                    )
+                except Exception as exc:
+                    logger.warning("oddpool_msg_error", error=str(exc))
 
     async def _cmd_trending(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.effective_message:
@@ -438,6 +455,95 @@ class PolymarketBot:
         return True
 
     # ── Error Handler ──────────────────────────────────
+
+    async def _cmd_arbitrage(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show cross-venue arbitrage opportunities via OddPool."""
+        if not update.effective_message:
+            return
+        if not self._rate_check(update):
+            return
+
+        if not self._signal_gen._oddpool.is_configured:
+            await update.effective_message.reply_text(
+                "⚠️ OddPool API not configured\\. Add ODDPOOL\\_API\\_KEY to \\.env",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        await update.effective_message.reply_text("🔄 Scanning cross\\-venue arbitrage\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+
+        opportunities = await self._signal_gen._oddpool.get_arbitrage_opportunities(
+            min_net_cents=0.5, minutes=30
+        )
+
+        if not opportunities:
+            await update.effective_message.reply_text(
+                "No arbitrage opportunities found right now\\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        lines = ["💰 *Cross\\-Venue Arbitrage Opportunities*\n"]
+        for i, opp in enumerate(opportunities[:5], 1):
+            title = _escape_md(opp.event_title[:50])
+            lines.append(
+                f"{i}\\. {title}\n"
+                f"   {_escape_md(opp.venue_a)} vs {_escape_md(opp.venue_b)}\n"
+                f"   Spread: {_escape_md(f'{opp.gross_spread_cents:.1f}')}¢ gross \\| "
+                f"Net: {_escape_md(f'{opp.net_profit_cents:.1f}')}¢\n"
+            )
+
+        text = "\n".join(lines)
+        from src.telegram.formatter import get_branding_footer
+        text += get_branding_footer()
+        await update.effective_message.reply_text(
+            text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=_get_inline_buttons()
+        )
+
+    async def _cmd_smart_money(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show Merlin smart money / insider data."""
+        if not update.effective_message:
+            return
+        if not self._rate_check(update):
+            return
+
+        await update.effective_message.reply_text("🧠 Fetching smart money data\\.\\.\\.", parse_mode=ParseMode.MARKDOWN_V2)
+
+        merlin_data = await self._signal_gen._merlin.get_smart_money_signal("OVERALL")
+
+        if not merlin_data.top_traders:
+            await update.effective_message.reply_text(
+                "No smart money data available right now\\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        lines = [
+            "🧠 *Smart Money Analysis \\(Merlin\\)*\n",
+            f"📊 *Bias:* {_escape_md(merlin_data.smart_money_bias.title())}",
+            f"🎯 *Confidence:* {_escape_md(f'{merlin_data.smart_money_confidence:.0%}')}\n",
+            "*Top Traders \\(Weekly PnL\\):*",
+        ]
+        for t in merlin_data.top_traders[:5]:
+            addr = t.wallet[:8] + "\\.\\.\\."
+            lines.append(
+                f"  \\#{t.rank} `{addr}` \\| PnL: ${_escape_md(f'{t.pnl:,.0f}')} \\| WR: {_escape_md(f'{t.win_rate:.0%}')}"
+            )
+
+        if merlin_data.insiders:
+            lines.append("\n*🕵️ Insider Detection:*")
+            for ins in merlin_data.insiders[:3]:
+                addr = ins.wallet[:8] + "\\.\\.\\."
+                lines.append(
+                    f"  `{addr}` \\| Score: {_escape_md(f'{ins.insider_score:.2f}')} \\| PnL: ${_escape_md(f'{ins.pnl:,.0f}')}"
+                )
+
+        text = "\n".join(lines)
+        from src.telegram.formatter import get_branding_footer
+        text += get_branding_footer()
+        await update.effective_message.reply_text(
+            text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=_get_inline_buttons()
+        )
 
     async def _error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error("telegram_error", error=str(context.error))

@@ -72,6 +72,8 @@ class MultiAIEngine:
             self._providers.append("groq")
         if self._settings.gemini_api_key:
             self._providers.append("gemini")
+        if self._settings.bluesminds_api_key:
+            self._providers.append("bluesminds")
         logger.info("multi_ai_init", providers=self._providers)
 
     async def consensus_estimate(
@@ -133,6 +135,8 @@ class MultiAIEngine:
                 return await self._query_groq(prompt)
             elif provider == "gemini":
                 return await self._query_gemini(prompt)
+            elif provider == "bluesminds":
+                return await self._query_bluesminds(prompt)
             else:
                 return AIModelResult(
                     provider=provider, probability=0.5, confidence=0,
@@ -204,6 +208,30 @@ class MultiAIEngine:
             data = resp.json()
             content = data["candidates"][0]["content"]["parts"][0]["text"]
             return _parse_ai_response(content, "gemini")
+
+    async def _query_bluesminds(self, prompt: str) -> AIModelResult:
+        """Query Blue Minds API (OpenAI-compatible multi-model proxy)."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{self._settings.bluesminds_base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._settings.bluesminds_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self._settings.bluesminds_model,
+                    "messages": [
+                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 1500,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            return _parse_ai_response(content, "bluesminds")
 
     def _ensemble(self, results: list[AIModelResult], market_price: float) -> ConsensusResult:
         """Ensemble multiple AI results using confidence-weighted averaging."""

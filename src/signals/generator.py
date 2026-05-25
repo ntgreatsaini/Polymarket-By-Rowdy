@@ -17,6 +17,8 @@ from src.polymarket.momentum import MomentumTracker
 from src.sentiment.analyzer import SentimentAnalyzer, SentimentResult
 from src.sentiment.enhanced_sources import EnhancedDataSources
 from src.sentiment.news_fetcher import NewsFetcher
+from src.whales.merlin_tracker import MerlinTracker
+from src.whales.oddpool_tracker import OddPoolTracker
 from src.whales.tracker import WhaleActivity, WhaleTracker
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +72,8 @@ class SignalGenerator:
         multi_ai_engine: Optional[MultiAIEngine] = None,
         momentum_tracker: Optional[MomentumTracker] = None,
         enhanced_sources: Optional[EnhancedDataSources] = None,
+        oddpool_tracker: Optional[OddPoolTracker] = None,
+        merlin_tracker: Optional[MerlinTracker] = None,
     ) -> None:
         self._poly = polymarket_client
         self._ai = ai_engine
@@ -80,6 +84,8 @@ class SignalGenerator:
         self._multi_ai = multi_ai_engine
         self._momentum = momentum_tracker or MomentumTracker(polymarket_client)
         self._enhanced = enhanced_sources or EnhancedDataSources()
+        self._oddpool = oddpool_tracker or OddPoolTracker()
+        self._merlin = merlin_tracker or MerlinTracker()
         self._settings = get_settings()
         self._recent_signals: set[str] = set()
 
@@ -151,9 +157,17 @@ class SignalGenerator:
         news_texts = [a.title + " " + a.summary for a in news_articles if a.title]
         sentiment_result = self._sentiment.analyze_texts(news_texts, source="news")
 
-        # --- 3. Whale tracking ---
+        # --- 3. Whale tracking (Polymarket CLOB + OddPool + Merlin) ---
         whale_alerts = await self._whales.scan_for_whale_trades(market_id=condition_id)
         whale_activity = self._whales.analyze_whale_activity(whale_alerts)
+
+        # OddPool whale data (cross-venue)
+        oddpool_stats = await self._oddpool.get_whale_feed(
+            limit=10, platform="polymarket", min_size=self._settings.whale_min_trade_size
+        )
+
+        # Merlin smart money signal
+        merlin_data = await self._merlin.get_smart_money_signal(category=category.upper())
 
         # --- 4. Momentum tracking ---
         momentum = self._momentum.get_momentum(condition_id, yes_price)
@@ -165,12 +179,26 @@ class SignalGenerator:
             "momentum": sentiment_result.momentum,
             "num_sources": len(sentiment_result.sources),
         }
+        # Combine whale data from all sources
+        combined_whale_volume = (
+            whale_activity.total_whale_volume + oddpool_stats.total_volume_24h
+        )
+        combined_whale_count = (
+            whale_activity.whale_trade_count + oddpool_stats.total_trades_24h
+        )
+        # Determine smart money direction considering Merlin insiders
+        smart_dir = whale_activity.smart_money_direction if hasattr(whale_activity, "smart_money_direction") else whale_activity.whale_bias
+        if merlin_data.smart_money_bias != "neutral":
+            smart_dir = merlin_data.smart_money_bias
+
         whale_dict: dict[str, Any] = {
-            "total_whale_volume": whale_activity.total_whale_volume,
+            "total_whale_volume": combined_whale_volume,
             "whale_bias": whale_activity.whale_bias,
-            "whale_trade_count": whale_activity.whale_trade_count,
-            "smart_money_direction": whale_activity.smart_money_direction
-            if hasattr(whale_activity, "smart_money_direction") else whale_activity.whale_bias,
+            "whale_trade_count": combined_whale_count,
+            "smart_money_direction": smart_dir,
+            "oddpool_volume_24h": oddpool_stats.total_volume_24h,
+            "merlin_smart_bias": merlin_data.smart_money_bias,
+            "merlin_confidence": merlin_data.smart_money_confidence,
         }
         momentum_dict: dict[str, Any] = {
             "change_1h": momentum.change_1h,
@@ -265,7 +293,9 @@ class SignalGenerator:
 
         news_summary = self._summarize_news(news_articles)
         sentiment_summary = self._summarize_sentiment(sentiment_result)
-        whale_summary = self._summarize_whales(whale_activity)
+        whale_summary = self._summarize_whales_enhanced(
+            whale_activity, oddpool_stats, merlin_data
+        )
 
         # --- 10. Win probability, EV, Kelly ---
         win_prob = ai_prob
@@ -439,6 +469,36 @@ class SignalGenerator:
             f"bias: {activity.whale_bias}"
             + (f"\nTop: {top_str}" if top_str else "")
         )
+
+    def _summarize_whales_enhanced(self, activity: WhaleActivity, oddpool_stats: Any, merlin_data: Any) -> str:
+        """Enhanced whale summary combining Polymarket CLOB + OddPool + Merlin data."""
+        parts: list[str] = []
+
+        # Base CLOB data
+        if activity.whale_trade_count > 0:
+            top = activity.top_trades[0] if activity.top_trades else None
+            top_str = f"\nTop: ${top.amount:,.0f} {top.side}" if top else ""
+            parts.append(
+                f"🐋 {activity.whale_trade_count} whale trades, "
+                f"${activity.total_whale_volume:,.0f} total, "
+                f"bias: {activity.whale_bias}{top_str}"
+            )
+
+        # OddPool cross-venue data
+        if oddpool_stats.total_volume_24h > 0:
+            oddpool_summary = self._oddpool.format_whale_summary(oddpool_stats)
+            if oddpool_summary:
+                parts.append(oddpool_summary)
+
+        # Merlin smart money
+        if merlin_data.top_traders:
+            merlin_summary = self._merlin.format_smart_money_summary(merlin_data)
+            if merlin_summary:
+                parts.append(merlin_summary)
+
+        if not parts:
+            return "No significant whale activity"
+        return "\n".join(parts)
 
     @staticmethod
     def _build_risk_breakdown(

@@ -53,6 +53,27 @@ class Settings(BaseSettings):
     # --- Sports/Odds ---
     the_odds_api_key: str = Field("", description="The Odds API key")
 
+    # --- OddPool (whale tracking + arbitrage across Polymarket & Kalshi) ---
+    oddpool_api_key: str = Field("", description="OddPool API key for whale tracking")
+    oddpool_base_url: str = Field(
+        "https://api.oddpool.com",
+        description="OddPool API base URL",
+    )
+
+    # --- Blue Minds (OpenAI-compatible multi-model proxy) ---
+    bluesminds_api_key: str = Field("", description="Blue Minds API key")
+    bluesminds_base_url: str = Field(
+        "https://api.bluesminds.com/v1",
+        description="Blue Minds API base URL",
+    )
+    bluesminds_model: str = Field("deepseek-chat", description="Blue Minds model to use")
+
+    # --- Merlin (Polymarket trader analytics) ---
+    merlin_base_url: str = Field(
+        "https://merlin.trade",
+        description="Merlin analytics base URL",
+    )
+
     # --- Polymarket ---
     polymarket_gamma_api: str = Field(
         "https://gamma-api.polymarket.com",
