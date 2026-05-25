@@ -1,0 +1,15 @@
+[Unit]
+Description=Polymarket Telegram Bot
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/polymarket-bot
+ExecStart=/opt/polymarket-bot/venv/bin/python main.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/polymarket-bot/.env
+
+[Install]
+WantedBy=multi-user.target
