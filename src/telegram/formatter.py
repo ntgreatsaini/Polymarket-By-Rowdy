@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.config.settings import get_settings
-from src.signals.generator import TradeSignal
+from src.signals.generator import CrossMarketComparison, TradeSignal
 from src.whales.tracker import WhaleAlert
 
 
@@ -23,74 +23,85 @@ def get_branding_footer() -> str:
 
 
 def format_signal(signal: TradeSignal) -> str:
-    """Format a trade signal as a premium Telegram message."""
-    confidence_emoji = _confidence_emoji(signal.confidence_score)
-    risk_emoji = _risk_emoji(signal.risk_level)
-    consensus_tag = ""
-    if signal.ai_models_used > 1:
-        if signal.ai_models_agree:
-            consensus_tag = f" \\[{signal.ai_models_used} AI AGREE\\]"
-        else:
-            consensus_tag = f" \\[{signal.ai_models_used} AI SPLIT\\]"
+    """Format a trade signal as a premium Telegram message matching POLY AI SIGNAL format."""
+    yes_pct = signal.yes_probability * 100
+    no_pct = signal.no_probability * 100
+    ai_pct = signal.ai_probability * 100
+    trade_price = signal.yes_probability if signal.direction == "YES" else signal.no_probability
     momentum_emoji = {"bullish": "📈", "bearish": "📉"}.get(signal.momentum_trend, "➡️")
-    direction_emoji = "🟢" if signal.direction == "YES" else "🔴"
-    win_pct = signal.win_probability * 100
-    ev_emoji = "✅" if signal.expected_value > 0 else "⚠️"
 
-    msg = (
-        f"🚨 HIGH\\-CONFIDENCE SIGNAL{consensus_tag}\n\n"
-        f"📊 *Market:*\n{_escape_md(signal.market_title)}\n\n"
-        f"{direction_emoji} *Direction:* {signal.direction}\n\n"
-    )
+    msg = "🚨 *POLY AI SIGNAL*\n\n"
 
-    # Win probability & trade stats — the key section
-    msg += (
-        "━━━ 🏆 WIN ANALYSIS ━━━\n"
-        f"🎯 *Win Probability:* {_escape_md(f'{win_pct:.1f}')}%\n"
-        f"📈 *Current Market Price:* {signal.yes_probability:.0%} YES \\| {signal.no_probability:.0%} NO\n"
-        f"🧠 *AI Estimated Probability:* {signal.ai_probability:.0%}\n"
-        f"🔥 *Expected Edge:* {_escape_md(f'{signal.expected_edge:+.1f}')}%\n"
-        f"{ev_emoji} *Expected Value \\(EV\\):* {_escape_md(f'{signal.expected_value:+.1f}')}%\n"
-        f"💰 *Kelly Bet Size:* {_escape_md(f'{signal.kelly_bet_size:.1%}')} of bankroll\n"
-        f"{confidence_emoji} *Confidence:* {signal.confidence_score}/100\n\n"
-    )
-
-    # Risk analysis section
-    rb = signal.risk_score_breakdown
-    msg += (
-        "━━━ ⚠️ RISK ANALYSIS ━━━\n"
-        f"{risk_emoji} *Overall Risk:* {signal.risk_level.replace('_', ' ').title()}\n"
-        f"💧 *Liquidity:* {_escape_md(signal.liquidity_rating)}"
-        f" \\(Risk: {_escape_md(rb.get('liquidity_risk', 'N/A'))}\\)\n"
-        f"📊 *Volume Risk:* {_escape_md(rb.get('volume_risk', 'N/A'))}\n"
-        f"📈 *Volatility:* {_escape_md(signal.volatility_rating)}"
-        f" \\({_escape_md(rb.get('volatility', 'N/A'))}\\)\n"
-        f"{momentum_emoji} *Momentum:* {_escape_md(signal.momentum_trend.title())}\n"
-        f"🐋 *Whale Alignment:* {_escape_md(rb.get('whale_alignment', 'N/A'))}\n"
-        f"📰 *Sentiment:* {_escape_md(rb.get('sentiment_direction', 'N/A'))}\n"
-        f"🤖 *AI Consensus:* {_escape_md(rb.get('ai_consensus', 'N/A'))}\n\n"
-    )
-
-    # AI reasoning & data
-    msg += (
-        "━━━ 🧠 AI ANALYSIS ━━━\n"
-        f"📰 *Reasoning:*\n{_escape_md(signal.ai_reasoning)}\n\n"
-        f"📰 *News:*\n{_escape_md(signal.news_summary)}\n\n"
-        f"📊 *Sentiment:*\n{_escape_md(signal.sentiment_summary)}\n\n"
-        f"🐋 *Whale Activity:*\n{_escape_md(signal.whale_summary)}\n\n"
-    )
-
-    # Trade execution section
-    msg += (
-        "━━━ 💰 TRADE EXECUTION ━━━\n"
-        f"💡 *Suggested Entry:* {_escape_md(signal.suggested_entry)}\n"
-        f"🎯 *Suggested Exit:* {_escape_md(signal.suggested_exit)}\n"
-        f"⏳ *Time Horizon:* {_escape_md(signal.time_horizon)}\n"
-    )
+    # Market title
+    msg += f"🎯 *Market:*\n{_escape_md(signal.market_title)}\n\n"
 
     # Trade link
     if signal.trade_url:
-        msg += f"\n🔗 *Trade Now:*\n{_escape_md(signal.trade_url)}\n"
+        msg += f"🔗 *Trade Link:*\n{_escape_md(signal.trade_url)}\n\n"
+
+    # Market odds
+    msg += (
+        "📊 *Market Odds:*\n"
+        f"🟢 YES: {_escape_md(f'{yes_pct:.0f}')}%\n"
+        f"🔴 NO: {_escape_md(f'{no_pct:.0f}')}%\n\n"
+    )
+
+    # AI probability
+    msg += f"🧠 *AI Probability:*\n{_escape_md(f'{ai_pct:.0f}')}%\n\n"
+
+    # Expected edge
+    msg += f"🔥 *Expected Edge:*\n{_escape_md(f'{signal.expected_edge:+.0f}')}%\n\n"
+
+    # Trade setup
+    entry_price = trade_price * 100
+    target_price = ai_pct
+    msg += (
+        "💰 *Trade Setup:*\n"
+        f"{signal.direction} buy @ {_escape_md(f'{entry_price:.0f}')}%\n"
+        f"🎯 Target: {_escape_md(f'{target_price:.0f}')}%\\+\n\n"
+    )
+
+    # Expiry
+    if signal.expiry_date:
+        msg += f"⏳ *Expiry:*\n{_escape_md(signal.expiry_date)}\n\n"
+    else:
+        msg += f"⏳ *Time Horizon:*\n{_escape_md(signal.time_horizon)}\n\n"
+
+    # Momentum
+    msg += f"{momentum_emoji} *Momentum:*\n{_escape_md(signal.momentum_trend.title())} short\\-term\n\n"
+
+    # Whale flow
+    msg += f"🐋 *Whale Flow:*\n{_escape_md(signal.whale_summary)}\n\n"
+
+    # Cross-market comparison
+    if signal.cross_market.has_data:
+        msg += "🌍 *Cross\\-Market Comparison:*\n"
+        msg += f"Polymarket: {_escape_md(f'{yes_pct:.0f}')}%\n"
+        for venue in signal.cross_market.other_venues:
+            v_pct = venue.probability * 100
+            msg += f"{_escape_md(venue.venue)}: {_escape_md(f'{v_pct:.0f}')}%\n"
+        msg += "\n"
+
+    # Sentiment
+    rb = signal.risk_score_breakdown
+    sentiment_dir = rb.get("sentiment_direction", signal.sentiment_summary.split()[0] if signal.sentiment_summary else "Neutral")
+    msg += f"📡 *Sentiment:*\n{_escape_md(sentiment_dir)}\n\n"
+
+    # AI thesis
+    msg += f"📰 *AI Thesis:*\n{_escape_md(signal.ai_reasoning)}\n\n"
+
+    # Risk
+    risk_emoji = _risk_emoji(signal.risk_level)
+    msg += f"{risk_emoji} *Risk:*\n{_escape_md(signal.risk_level.replace('_', ' ').title())}\n\n"
+
+    # Confidence
+    msg += f"🎯 *Confidence:*\n{signal.confidence_score}/100\n\n"
+
+    # Signal quality
+    msg += f"⭐ *Signal Quality:*\n{_escape_md(signal.signal_quality)}\n\n"
+
+    # Potential ROI
+    msg += f"💎 *Potential ROI:*\n{_escape_md(f'+{signal.potential_roi:.0f}')}%\n"
 
     msg += get_branding_footer()
     return msg

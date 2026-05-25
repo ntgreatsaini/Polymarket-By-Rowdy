@@ -51,8 +51,7 @@ def _get_market_buttons(condition_id: str, slug: str = "", trade_url: str = "") 
     market_url = trade_url or (f"https://polymarket.com/event/{slug}" if slug else f"https://polymarket.com/event/{condition_id}")
     buttons = [
         [
-            InlineKeyboardButton("💰 Trade Now", url=market_url),
-            InlineKeyboardButton("📊 View Market", url=market_url),
+            InlineKeyboardButton("📈 Trade Now", url=market_url),
         ],
         [
             InlineKeyboardButton("📢 Join Telegram", url=settings.telegram_channel_link),

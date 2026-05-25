@@ -13,6 +13,7 @@ from src.ai.multi_ai_engine import ConsensusResult, MultiAIEngine
 from src.ai.probability_engine import AIProbabilityEngine
 from src.config.settings import get_settings
 from src.polymarket.client import PolymarketClient
+from src.polymarket.cross_market import CrossMarketClient, CrossMarketComparison
 from src.polymarket.momentum import MomentumTracker
 from src.sentiment.analyzer import SentimentAnalyzer, SentimentResult
 from src.sentiment.enhanced_sources import EnhancedDataSources
@@ -49,6 +50,10 @@ class TradeSignal:
     win_probability: float = 0.0  # probability of winning this trade (0-1)
     expected_value: float = 0.0  # EV in percentage
     kelly_bet_size: float = 0.0  # recommended fraction of bankroll
+    potential_roi: float = 0.0  # potential ROI percentage
+    signal_quality: str = "B"  # A+, A, B, C grade
+    cross_market: CrossMarketComparison = field(default_factory=lambda: CrossMarketComparison(polymarket_price=0))
+    expiry_date: str = ""  # market end date
     risk_score_breakdown: dict[str, Any] = field(default_factory=dict)
     market_slug: str = ""
     ai_models_used: int = 1
@@ -86,6 +91,7 @@ class SignalGenerator:
         self._enhanced = enhanced_sources or EnhancedDataSources()
         self._oddpool = oddpool_tracker or OddPoolTracker()
         self._merlin = merlin_tracker or MerlinTracker()
+        self._cross_market = CrossMarketClient()
         self._settings = get_settings()
         self._recent_signals: set[str] = set()
 
@@ -307,7 +313,25 @@ class SignalGenerator:
         slug = market.get("slug", "")
         trade_url = f"https://polymarket.com/event/{slug}" if slug else ""
 
-        # --- 12. Risk score breakdown ---
+        # --- 12. Cross-market comparison ---
+        cross_market = await self._cross_market.get_comparison(question, yes_price)
+
+        # --- 13. Signal quality & potential ROI ---
+        signal_quality = self._calculate_signal_quality(
+            ai_confidence, edge, ev, models_agree, liquidity, sentiment_agrees
+        )
+        potential_roi = self._calculate_potential_roi(trade_price, ai_prob)
+
+        # --- 14. Expiry date ---
+        expiry_date = market.get("end_date_iso", market.get("endDate", ""))
+        if expiry_date and "T" in str(expiry_date):
+            try:
+                dt = datetime.fromisoformat(str(expiry_date).replace("Z", "+00:00"))
+                expiry_date = dt.strftime("%b %d, %Y")
+            except (ValueError, TypeError):
+                pass
+
+        # --- 15. Risk score breakdown ---
         risk_breakdown = self._build_risk_breakdown(
             ai_confidence, ai_risk, liquidity, volume, whale_activity, momentum,
             sentiment_result, models_agree, ev,
@@ -337,6 +361,10 @@ class SignalGenerator:
             win_probability=round(win_prob, 4),
             expected_value=ev,
             kelly_bet_size=kelly,
+            potential_roi=potential_roi,
+            signal_quality=signal_quality,
+            cross_market=cross_market,
+            expiry_date=expiry_date,
             risk_score_breakdown=risk_breakdown,
             market_slug=slug,
             ai_models_used=models_used,
@@ -406,6 +434,57 @@ class SignalGenerator:
         elif risk_score >= 2:
             return "medium"
         return "low"
+
+    @staticmethod
+    def _calculate_signal_quality(
+        confidence: int, edge: float, ev: float, models_agree: bool,
+        liquidity: float, sentiment_agrees: bool,
+    ) -> str:
+        """Calculate signal quality grade: A+, A, B, C."""
+        score = 0
+        if confidence >= 80:
+            score += 3
+        elif confidence >= 65:
+            score += 2
+        elif confidence >= 50:
+            score += 1
+
+        if abs(edge) >= 15:
+            score += 3
+        elif abs(edge) >= 10:
+            score += 2
+        elif abs(edge) >= 5:
+            score += 1
+
+        if ev > 20:
+            score += 2
+        elif ev > 10:
+            score += 1
+
+        if models_agree:
+            score += 1
+        if sentiment_agrees:
+            score += 1
+        if liquidity >= 50_000:
+            score += 1
+
+        if score >= 10:
+            return "A+"
+        elif score >= 7:
+            return "A"
+        elif score >= 4:
+            return "B"
+        return "C"
+
+    @staticmethod
+    def _calculate_potential_roi(trade_price: float, ai_probability: float) -> float:
+        """Calculate potential ROI if AI probability is correct."""
+        if trade_price <= 0 or trade_price >= 1:
+            return 0.0
+        # If you buy at trade_price and market resolves to 1.0
+        payout = 1.0 / trade_price
+        roi = (payout - 1) * ai_probability * 100
+        return round(roi, 1)
 
     @staticmethod
     def _rate_liquidity(liquidity: float) -> str:
